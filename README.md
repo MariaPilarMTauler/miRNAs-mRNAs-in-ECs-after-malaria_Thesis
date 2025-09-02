@@ -11,7 +11,7 @@ All data are provided as Excel or CSV files. Large datasets that could not be in
 
 ## Repository Structure
 
-- `DEGs_DEmiRNAs/` → Differential expression results (Supplementary Tables 1–).  
+- `DEGs_DEmiRNAs/` → Differential expression results (Supplementary Tables 1–11).  
   - Contains complete lists of differentially expressed genes (DEGs) and miRNAs (DE miRNAs) in endothelial cells and extracellular vesicles (EVs) under different experimental conditions.  
 - `GO_KEGG_enrichment/` → Functional enrichment results.  
   - Includes Gene Ontology (GO) and KEGG pathway enrichment outputs for DEGs and predicted miRNA targets.  
@@ -23,7 +23,7 @@ All data are provided as Excel or CSV files. Large datasets that could not be in
 
 ---
 
-## 📑 Supplementary Tables (1–14: Differential Expression)
+## 📑 Supplementary Tables (1–11: Differential Expression)
 
 Each file contains one or two sheets (Upregulated / Downregulated) unless otherwise indicated.
 
