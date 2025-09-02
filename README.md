@@ -11,7 +11,7 @@ All data are provided as Excel or CSV files. Large datasets that could not be in
 
 ## Repository Structure
 
-- `DEGs_DEmiRNAs/` → Differential expression results (Supplementary Tables 1–14).  
+- `DEGs_DEmiRNAs/` → Differential expression results (Supplementary Tables 1–).  
   - Contains complete lists of differentially expressed genes (DEGs) and miRNAs (DE miRNAs) in endothelial cells and extracellular vesicles (EVs) under different experimental conditions.  
 - `GO_KEGG_enrichment/` → Functional enrichment results.  
   - Includes Gene Ontology (GO) and KEGG pathway enrichment outputs for DEGs and predicted miRNA targets.  
@@ -33,11 +33,11 @@ Each file contains one or two sheets (Upregulated / Downregulated) unless otherw
 4. **Table 4** – DE var genes P.falciparum  
 5. **Table 5** – DE miRNAs in HBMECs (8h, TNF vs control).  
 6. **Table 6** – DE miRNAs in HBMECs (24h, [state exact condition: SS+TNF or IEs+SS]).  
-7. **Table 8** – DE miRNAs in HBMECs after IEs and SS exposure (24h).  
-8. **Table 9** – DE miRNAs in HBMECs after shear stress and TNF exposure (24h).  
-9. **Table 10** – DE miRNAs in EVs derived from HBMECs after TNF exposure.  
-10. **Table 11** – DE miRNAs in EVs derived from IEBRAIN.  
-11. **Table 12** – DE miRNAs in EVs derived from IELUNG.  
+7. **Table 7** – DE miRNAs in HBMECs after IEs and SS exposure (24h).  
+8. **Table 8** – DE miRNAs in HBMECs after shear stress and TNF exposure (24h).  
+9. **Table 9** – DE miRNAs in EVs derived from HBMECs after TNF exposure.  
+10. **Table 10** – DE miRNAs in EVs derived from IEBRAIN.  
+11. **Table 11** – DE miRNAs in EVs derived from IELUNG.  
 
 ---
 
