@@ -1,0 +1,184 @@
+###############################################
+# From mRNA DEGs to GO / KEGG enrichment + dotplots
+#
+# - Input: differential expression results (mRNA)
+# - Output: GO Biological Process and KEGG pathway dotplots
+#
+# This script assumes an Excel or CSV with columns:
+#   - "Gene" or "SYMBOL" (gene symbols)
+#   - "log2FoldChange"
+#   - "padj" (FDR-adjusted p-value)
+###############################################
+
+# Load packages #
+library(readxl)        # read Excel
+library(dplyr)         # data wrangling
+library(clusterProfiler) # enrichGO, enrichKEGG
+library(org.Hs.eg.db)  # human gene annotations
+library(enrichplot)    # dotplot() for enrichment results
+library(stringr)       # string helpers (optional)
+library(ggplot2)       # graphics
+
+# 1) Load DE results #
+# Replace with your actual file and sheet
+deg_file  <- "path/to/mRNA_DE_results.xlsx"
+deg_sheet <- 1
+
+deg_tbl <- read_excel(deg_file, sheet = deg_sheet)
+
+# Make sure you know the column names; adjust if needed
+# Here we assume:
+#   Gene column: "Gene"
+#   log2FC:      "log2FoldChange"
+#   FDR:         "padj"
+
+deg_tbl <- deg_tbl %>%
+  dplyr::rename(
+    SYMBOL       = Gene,
+    log2FC       = log2FoldChange,
+    FDR_padj     = padj
+  )
+
+# 2) Define significant gene sets #
+# Example: FDR < 0.05 and |log2FC| > 1
+deg_sig <- deg_tbl %>%
+  filter(!is.na(FDR_padj)) %>%
+  filter(FDR_padj < 0.05, abs(log2FC) > 1)
+
+# Optional: up- and down-regulated sets
+deg_up <- deg_sig %>% filter(log2FC > 0)
+deg_down <- deg_sig %>% filter(log2FC < 0)
+
+# We will use gene symbols from the significant set
+genes_up   <- unique(deg_up$SYMBOL)
+genes_down <- unique(deg_down$SYMBOL)
+
+cat("Upregulated genes:", length(genes_up), "\n")
+cat("Downregulated genes:", length(genes_down), "\n")
+
+# 3) Map gene symbols to Entrez IDs ##
+# clusterProfiler prefers Entrez IDs internally ##
+gene2entrez_up <- bitr(
+  genes_up,
+  fromType = "SYMBOL",
+  toType   = "ENTREZID",
+  OrgDb    = org.Hs.eg.db
+)
+
+gene2entrez_down <- bitr(
+  genes_down,
+  fromType = "SYMBOL",
+  toType   = "ENTREZID",
+  OrgDb    = org.Hs.eg.db
+)
+
+entrez_up   <- unique(gene2entrez_up$ENTREZID)
+entrez_down <- unique(gene2entrez_down$ENTREZID)
+
+## 4) GO Biological Process enrichment ##
+## This tests whether particular GO terms are over-represented ####
+#### among the DE genes relative to the background. ###
+
+ego_up <- enrichGO(
+  gene          = entrez_up,
+  OrgDb         = org.Hs.eg.db,
+  keyType       = "ENTREZID",
+  ont           = "BP",        # Biological Process
+  pAdjustMethod = "BH",        # Benjamini–Hochberg FDR
+  pvalueCutoff  = 0.05,
+  qvalueCutoff  = 0.05,
+  readable      = TRUE         # convert back to gene symbols
+)
+
+ego_down <- enrichGO(
+  gene          = entrez_down,
+  OrgDb         = org.Hs.eg.db,
+  keyType       = "ENTREZID",
+  ont           = "BP",
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.05,
+  qvalueCutoff  = 0.05,
+  readable      = TRUE
+)
+
+# 5) KEGG pathway enrichment ##
+# NOTE: KEGG sometimes requires internet and may change;
+# you may need an organism code like "hsa" for human.
+
+ekegg_up <- enrichKEGG(
+  gene          = entrez_up,
+  organism      = "hsa",
+  keyType       = "kegg",
+  pvalueCutoff  = 0.05
+)
+
+ekegg_down <- enrichKEGG(
+  gene          = entrez_down,
+  organism      = "hsa",
+  keyType       = "kegg",
+  pvalueCutoff  = 0.05
+)
+
+# Convert KEGG IDs back to symbols for readability (optional)
+ekegg_up  <- setReadable(ekegg_up, OrgDb = org.Hs.eg.db, keyType = "ENTREZID")
+ekegg_down <- setReadable(ekegg_down, OrgDb = org.Hs.eg.db, keyType = "ENTREZID")
+
+# 6) Dotplots for GO and KEGG ###
+# dotplot() from enrichplot shows:
+#   - x-axis: gene ratio (hits / total genes in term)
+#   - y-axis: GO terms / pathways
+#   - dot size: number of genes
+#   - colour: adjusted p-value
+
+# Output folder for plots
+out_dir <- "GO_KEGG_dotplots_mRNA"
+if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+
+# GO BP dotplot (upregulated)
+p_go_up <- dotplot(ego_up, showCategory = 20) +
+  ggtitle("GO BP enrichment - Upregulated mRNAs")
+
+ggsave(
+  filename = file.path(out_dir, "GO_BP_up_dotplot.png"),
+  plot     = p_go_up,
+  width    = 7,
+  height   = 5,
+  dpi      = 300
+)
+
+# GO BP dotplot (downregulated)
+p_go_down <- dotplot(ego_down, showCategory = 20) +
+  ggtitle("GO BP enrichment - Downregulated mRNAs")
+
+ggsave(
+  filename = file.path(out_dir, "GO_BP_down_dotplot.png"),
+  plot     = p_go_down,
+  width    = 7,
+  height   = 5,
+  dpi      = 300
+)
+
+# KEGG dotplots
+p_kegg_up <- dotplot(ekegg_up, showCategory = 20) +
+  ggtitle("KEGG enrichment - Upregulated mRNAs")
+
+ggsave(
+  filename = file.path(out_dir, "KEGG_up_dotplot.png"),
+  plot     = p_kegg_up,
+  width    = 7,
+  height   = 5,
+  dpi      = 300
+)
+
+p_kegg_down <- dotplot(ekegg_down, showCategory = 20) +
+  ggtitle("KEGG enrichment - Downregulated mRNAs")
+
+ggsave(
+  filename = file.path(out_dir, "KEGG_down_dotplot.png"),
+  plot     = p_kegg_down,
+  width    = 7,
+  height   = 5,
+  dpi      = 300
+)
+
+cat("✅ GO / KEGG dotplots saved in:", out_dir, "\n")
