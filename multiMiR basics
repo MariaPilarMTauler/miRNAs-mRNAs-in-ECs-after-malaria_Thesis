@@ -1,0 +1,30 @@
+## multiMiR is an R package that aggregates miRNA–mRNA interactions ##
+## from multiple databases (validated + predicted) ##
+
+library(multiMiR)
+
+# Get miRNA–mRNA interactions for the selected miRNAs --> upload excel/CSV or define manually ##
+miRNAS <- read_excel(Name/to_your_path/xlxs/csv)
+seleceted_miRNAs <- miRNAs$Mature_miRNAs ## or check the ID of your columns ##
+mirna_targets <- get_multimir(
+  mirna   = selected_miRNAs,
+  summary = TRUE,
+  table   = "predicted"  # or "validated" if you want validated-only
+)
+
+# Extract the data slot as a data.frame
+mirna_targets_df <- mirna_targets@data
+
+## export the full table ##
+write.csv(mirna_targets_df, "multiMiR_targets_all.csv", row.names = FALSE)
+
+## Filter targets to genes actually expressed in my mRNA data ##
+(mrna_genes = vector of expressed gene symbols)
+
+mirna_targets_filtered <- mirna_targets_df %>%
+  dplyr::filter(target_symbol %in% mrna_genes) %>%
+  dplyr::distinct(mature_mirna_id, target_symbol, .keep_all = TRUE)
+
+export filtered targets
+# write.csv(mirna_targets_filtered, "multiMiR_targets_expressed_only.csv", row.names = FALSE)
+
