@@ -1,0 +1,191 @@
+
+# Build miRNA → target → Reactome pathway table
+# and plot a Sankey / alluvial diagram
+## Load required packages ##
+library(readxl)       
+library(dplyr)        
+library(tidyr)        
+library(multiMiR)     
+library(org.Hs.eg.db) 
+library(ReactomePA)   
+library(ggplot2)      
+library(ggalluvial)   
+library(scales)       
+library(stringr)      
+library(openxlsx)     
+
+## 1) Load candidate miRNAs ##
+## Excel with a column "Mature_miRNA" --> canonical miRNA #
+top_mature <- read_excel("path/to/DEmiRNAs.xlsx")
+selected_miRNAs <- top_mature$Mature_miRNA
+
+## 2) Map mature miRNAs to seed-level names ##
+## We use a separate Excel with all seeds (e.g. from isomiR output)
+seed_data <- read_excel("path/to/ALL_SEED.xlsx")
+colnames(seed_data)[colnames(seed_data) == "Name"] <- "Seed_Name"
+
+## Create a "Seed_clean" ID like "miR-193a-3p" from "hsa-miR-193a-3p*" ##
+seed_data$Seed_clean <- gsub("hsa-(miR-[0-9]+[a-zA-Z]*).*", "\\1", seed_data$Seed_Name)
+
+## Apply the same cleaning to the selected miRNAs##
+top_mature <- top_mature %>%
+  mutate(Seed_clean = gsub("hsa-(miR-[0-9]+[a-zA-Z]*).*", "\\1", Mature_miRNA))
+
+#  match our candidates ##
+matched_seeds <- seed_data %>%
+  filter(Seed_clean %in% top_mature$Seed_clean)
+
+## 3) Load mRNA expression to restrict targets ##
+# We only keep miRNA targets that are actually expressed as mRNAs ##
+mrna_data  <- read_excel("path/to/clean_data_TPM_all_exp.xlsx")
+mrna_genes <- mrna_data$Name   # gene symbols
+
+## 4) Predict miRNA targets with multiMiR ##
+mirna_targets <- get_multimir(
+  mirna   = selected_miRNAs,
+  summary = TRUE,
+  table   = "predicted"   # or "validated" if you prefer validated-only
+)
+
+# Extract and filter to expressed genes
+targets_df <- mirna_targets@data %>%
+  filter(target_symbol %in% mrna_genes) %>%
+  distinct(mature_mirna_id, target_symbol, .keep_all = TRUE)
+# At this point: mature_miRNA → target mRNA symbol
+
+## 5) Reactome pathway enrichment ##
+## Convert target gene symbols to Entrez IDs for ReactomePA ##
+entrez_ids <- mapIds(
+  org.Hs.eg.db,
+  keys     = unique(targets_df$target_symbol),
+  column   = "ENTREZID",
+  keytype  = "SYMBOL",
+  multiVals = "first"
+) %>%
+  na.omit() %>%
+  as.character()
+
+## Run Reactome enrichment on the combined target gene set ##
+reactome_enrich <- enrichPathway(
+  gene     = entrez_ids,
+  organism = "human",
+  readable = TRUE
+)
+reactome_table <- as.data.frame(reactome_enrich)
+
+## Convert Reactome result into gene–pathway pairs ##
+gene2pathway <- reactome_table %>%
+  dplyr::filter(p.adjust < 0.05) %>%        # keep only FDR-significant pathways
+  dplyr::select(Description, geneID) %>%    # Description = pathway name
+  tidyr::separate_rows(geneID, sep = "/")   # split "GENE1/GENE2/..." into rows
+
+## 6) Build the full Sankey link table ##
+# Join miRNA → target with target → pathway
+sankey_data <- targets_df %>%
+  inner_join(
+    gene2pathway,
+    by = c("target_symbol" = "geneID"),
+    relationship = "many-to-many"
+  ) %>%
+  mutate(
+    # Clean seed ID again (for safety)
+    Seed_clean = gsub("hsa-(miR-[0-9]+[a-zA-Z]*).*", "\\1", mature_mirna_id),
+    # Map to the original seed names (e.g. with isomiR info)
+    Seed_Name  = matched_seeds$Seed_Name[match(Seed_clean, matched_seeds$Seed_clean)],
+    # Tidy column names for plotting
+    Mature_miRNA = trimws(mature_mirna_id),
+    Target_mRNA  = trimws(target_symbol),
+    Pathway      = str_trim(Description)
+  ) %>%
+  ## Drop miRNAs for which we don't have a Seed_Name mapping ##
+  filter(!is.na(Seed_Name)) %>%
+  ## Collapse duplicate edges and add a frequency column (all 1 here) ##
+  group_by(Seed_Name, Mature_miRNA, Target_mRNA, Pathway) %>%
+  summarise(Freq = 1, .groups = "drop") ## you add this to avoid multiple ribbons from the multiple datasets freq = 1 --> each unique combination should count as one unit of flow ##
+
+# Wrap labels so they fit better in the plot ##
+sankey_data <- sankey_data %>%
+  mutate(
+    Pathway     = str_wrap(Pathway,     width = 25),
+    Target_mRNA = str_wrap(Target_mRNA, width = 20),
+    Seed_Name   = str_wrap(Seed_Name,   width = 15)
+  )
+
+## 7) Optional: filter to top N nodes for a cleaner display ##
+top_miRNAs   <- sankey_data %>% count(Mature_miRNA, sort = TRUE) %>%
+  slice_head(n = 10) %>% pull(Mature_miRNA)
+top_targets  <- sankey_data %>% count(Target_mRNA, sort = TRUE) %>%
+  slice_head(n = 10) %>% pull(Target_mRNA)
+top_pathways <- sankey_data %>% count(Pathway, sort = TRUE) %>%
+  slice_head(n = 10) %>% pull(Pathway)
+
+sankey_clean <- sankey_data %>%
+  filter(
+    Mature_miRNA %in% top_miRNAs,
+    Target_mRNA  %in% top_targets,
+    Pathway      %in% top_pathways
+  )
+
+## 8) Save all intermediate tables to Excel ##
+out_xlsx <- "Sankey_Master_Table.xlsx"
+
+openxlsx::write.xlsx(
+  list(
+    targets_df     = targets_df,     # mature_miRNA → target gene
+    reactome_pairs = gene2pathway,   # gene → pathway
+    sankey_data    = sankey_data,    # full Seed → Mature → Target → Pathway
+    sankey_clean   = sankey_clean    # filtered Top-N used for plotting
+  ),
+  file      = out_xlsx,
+  asTable   = TRUE,
+  overwrite = TRUE
+)
+
+## 9) Plot the final Sankey / alluvial diagram ##
+## One colour per seed ##
+n_colors  <- length(unique(sankey_clean$Seed_Name))
+my_palette <- hue_pal()(n_colors)
+
+ggplot(
+  sankey_clean,
+  aes(
+    axis1 = Seed_Name,
+    axis2 = Mature_miRNA,
+    axis3 = Target_mRNA,
+    axis4 = Pathway,
+    y     = Freq
+  )
+) +
+  geom_alluvium(aes(fill = Seed_Name), width = 0.15, alpha = 0.85) +
+  geom_stratum(width = 0.3, fill = "white", color = "black") +
+  geom_text(
+    stat  = "stratum",
+    aes(label = after_stat(stratum)),
+    size  = 2.5,
+    color = "black",
+    lineheight = 0.9
+  ) +
+  scale_fill_manual(values = my_palette) +
+  scale_x_discrete(
+    limits = c("Seed", "Mature", "Target", "Pathway"),
+    expand = c(0.05, 0.05)
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.margin   = margin(10, 100, 10, 10),
+    panel.grid    = element_blank(),
+    axis.text.y   = element_blank(),
+    axis.ticks    = element_blank(),
+    plot.title    = element_blank(),
+    legend.position = "none"
+  ) +
+  labs(x = NULL, y = NULL)
+
+# 10) Save the plot #
+ggsave(
+  "Sankey_Cleaned_Plot.pdf",
+  width  = 14,
+  height = 8.5,
+  units  = "in",
+  dpi    = 600
+)
